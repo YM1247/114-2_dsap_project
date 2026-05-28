@@ -108,18 +108,46 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 func _generate_new_map() -> void:
-	map_data = generator.generate_map()
+	# 先嘗試由目前 generator 生成地圖，驗證回傳格式是否正確
+	var gen_map = generator.generate_map()
+	if typeof(gen_map) != TYPE_DICTIONARY or not gen_map.has("floors") or not gen_map.has("nodes"):
+		push_error("Generator %s returned invalid map data" % generator.get_algorithm_name())
+		# 使用預設 DAG 作為回退
+		var fallback_factory = MapGeneratorFactory.new()
+		generator = fallback_factory.create_generator(MapGeneratorFactory.ALGORITHM_DAG)
+		gen_map = generator.generate_map()
+		if typeof(gen_map) != TYPE_DICTIONARY or not gen_map.has("floors") or not gen_map.has("nodes"):
+			push_error("Fallback generator also failed; aborting map generation")
+			status_label.text = "地圖生成失敗，請查看輸出日誌。"
+			map_data = {}
+			queue_redraw()
+			return
+
+	map_data = gen_map
 	_compute_node_positions()
 	current_node_id = -1
 	hovered_node_id = -1
 	walked_nodes.clear()
 	walked_edges.clear()
-	selectable_nodes = map_data["floors"][0].duplicate()
+	# 安全地設定第一層可選節點
+	if map_data.has("floors") and map_data["floors"].size() > 0:
+		selectable_nodes = map_data["floors"][0].duplicate()
+	else:
+		selectable_nodes = []
 
-	var verification: Dictionary = generator.verify_connectivity(map_data)
-	var verify_text: String = "PASS" if bool(verification["is_valid"]) else "FAIL"
-	var evaluation: Dictionary = evaluator.evaluate_map(map_data, generator)
-	score_line_text = _build_evaluation_text(verify_text, evaluation)
+	# 驗證與評估，若失敗則顯示錯誤但不要崩潰
+	var verification: Dictionary = {}
+	var verify_text: String = "FAIL"
+	# 只有在 floors 與 nodes 結構完整且首尾層都有節點時才做更深入驗證
+	if map_data.has("floors") and map_data.has("nodes") and map_data["floors"].size() > 0 and map_data["nodes"].size() > 0 and map_data["floors"][0].size() > 0 and map_data["floors"][map_data["floors"].size() - 1].size() > 0:
+		# Safe to call verify/evaluate
+		verification = generator.verify_connectivity(map_data)
+		verify_text = "PASS" if bool(verification.get("is_valid", false)) else "FAIL"
+		var evaluation: Dictionary = evaluator.evaluate_map(map_data, generator)
+		score_line_text = _build_evaluation_text(verify_text, evaluation)
+	else:
+		score_line_text = "[Invalid or incomplete map data]"
+
 	_set_action_text("點選第一層節點開始 | R 重生 | 1-4 切換演算法")
 	queue_redraw()
 
@@ -195,8 +223,12 @@ func _input(event: InputEvent) -> void:
 				_switch_algorithm("csp")
 
 func _switch_algorithm(algorithm: String) -> void:
-	var factory = MapGeneratorFactory.new()
-	generator = factory.create_generator(algorithm)
+	var new_gen = factory.create_generator(algorithm)
+	if new_gen == null:
+		push_error("Failed to create generator for algorithm: %s" % algorithm)
+		_set_action_text("切換失敗：未知或無法建立的演算法")
+		return
+	generator = new_gen
 	_set_action_text("已切換到演算法: %s" % generator.get_algorithm_name())
 	_generate_new_map()
 
@@ -258,4 +290,3 @@ func _node_subtitle(node_type: String) -> String:
 			return "Final Battle"
 		_:
 			return "Unknown"
-
