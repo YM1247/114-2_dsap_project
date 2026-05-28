@@ -4,18 +4,19 @@ const NODE_RADIUS := 16.0
 const NODE_CARD_SIZE := Vector2(120.0, 52.0)
 const MAP_MARGIN_X := 80.0
 const MAP_MARGIN_Y := 90.0
-const MAP_GENERATOR_SCRIPT = preload("res://src/scripts/map_generator.gd")
 const MAP_EVALUATOR_SCRIPT = preload("res://src/scripts/map_evaluator.gd")
 
 @onready var status_label: Label = $StatusLabel
 @onready var regenerate_button: Button = $RegenerateButton
 
-var generator = null
+var factory: MapGeneratorFactory = MapGeneratorFactory.new()
+var generator: MapGeneratorBase = null
 var evaluator = null
 var map_data: Dictionary = {}
 var node_positions: Dictionary = {}
 var current_node_id: int = -1
 var selectable_nodes: Array = []
+var current_algorithm: String = "dag"
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var hovered_node_id: int = -1
 var walked_nodes: Dictionary = {}
@@ -23,7 +24,7 @@ var walked_edges: Dictionary = {}
 var score_line_text: String = ""
 
 func _ready() -> void:
-	generator = MAP_GENERATOR_SCRIPT.new()
+	generator = factory.create_generator(current_algorithm)
 	evaluator = MAP_EVALUATOR_SCRIPT.new()
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	rng.randomize()
@@ -119,7 +120,7 @@ func _generate_new_map() -> void:
 	var verify_text: String = "PASS" if bool(verification["is_valid"]) else "FAIL"
 	var evaluation: Dictionary = evaluator.evaluate_map(map_data, generator)
 	score_line_text = _build_evaluation_text(verify_text, evaluation)
-	_set_action_text("點選第一層節點開始，R 可重生地圖。")
+	_set_action_text("點選第一層節點開始 | R 重生 | 1-4 切換演算法")
 	queue_redraw()
 
 func _compute_node_positions() -> void:
@@ -180,6 +181,24 @@ func _on_regenerate_pressed() -> void:
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
 		_generate_new_map()
+	
+	# 按 1-4 切換演算法
+	if event is InputEventKey and event.pressed:
+		match event.keycode:
+			KEY_1:
+				_switch_algorithm("dag")
+			KEY_2:
+				_switch_algorithm("bsp")
+			KEY_3:
+				_switch_algorithm("forest")
+			KEY_4:
+				_switch_algorithm("csp")
+
+func _switch_algorithm(algorithm: String) -> void:
+	var factory = MapGeneratorFactory.new()
+	generator = factory.create_generator(algorithm)
+	_set_action_text("已切換到演算法: %s" % generator.get_algorithm_name())
+	_generate_new_map()
 
 func _type_color(node_type: String) -> Color:
 	match node_type:
@@ -203,7 +222,9 @@ func _edge_key(from_id: int, to_id: int) -> String:
 
 func _build_evaluation_text(verify_text: String, evaluation: Dictionary) -> String:
 	var m: Dictionary = evaluation["metrics"]
-	return "DAG %s | Score %d/100 | Choice %d Branch %d Path %d Variety %d Pace %d" % [
+	var algo_name: String = generator.get_algorithm_name()
+	return "%s %s | Score %d/100 | Choice %d Branch %d Path %d Variety %d Pace %d" % [
+		algo_name,
 		verify_text,
 		evaluation["total_score"],
 		m["choice_quality"],
