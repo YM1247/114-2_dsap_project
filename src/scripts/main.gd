@@ -24,10 +24,14 @@ var walked_nodes: Dictionary = {}
 var walked_edges: Dictionary = {}
 var score_line_text: String = ""
 
+var custom_font: Font = null
+
 var opt_force_shop: bool = false
 var opt_force_camp: bool = false
 var opt_floors: int = 10
 var opt_columns: int = 7
+var opt_seed: String = ""
+var current_seed: int = 0
 
 func _ready() -> void:
 	evaluator = MAP_EVALUATOR_SCRIPT.new()
@@ -35,6 +39,16 @@ func _ready() -> void:
 	rng.randomize()
 	randomize()
 	regenerate_button.pressed.connect(_on_regenerate_pressed)
+	
+	# 嘗試載入中文字型以解決 HTML5 亂碼問題
+	if ResourceLoader.exists("res://NotoSansTC-Regular.ttf"):
+		custom_font = load("res://NotoSansTC-Regular.ttf")
+		var app_theme = Theme.new()
+		app_theme.default_font = custom_font
+		self.theme = app_theme
+	else:
+		custom_font = ThemeDB.fallback_font
+		
 	_build_custom_ui()
 	_generate_new_map()
 
@@ -92,7 +106,7 @@ func _draw() -> void:
 			draw_rect(draw_rect_area.grow(4.0), border_color, false, border_width)
 		draw_rect(draw_rect_area, border_color if not selectable_nodes.has(node_id) else Color.BLACK, false, 2.0)
 
-		var font: Font = ThemeDB.fallback_font
+		var font: Font = custom_font if custom_font else ThemeDB.fallback_font
 		var title: String = _node_title(int(node_id), node["type"])
 		var subtitle: String = _node_subtitle(node["type"])
 		draw_string(font, card_rect.position + Vector2(8.0, 19.0), title, HORIZONTAL_ALIGNMENT_LEFT, card_rect.size.x - 16.0, 14, Color.BLACK)
@@ -103,6 +117,9 @@ func _build_custom_ui() -> void:
 	add_child(ui_canvas)
 	
 	var panel = PanelContainer.new()
+	if self.theme:
+		panel.theme = self.theme
+		
 	var margin = MarginContainer.new()
 	margin.add_theme_constant_override("margin_top", 10)
 	margin.add_theme_constant_override("margin_left", 15)
@@ -185,6 +202,28 @@ func _build_custom_ui() -> void:
 	cols_hbox.add_child(cols_slider)
 	vbox.add_child(cols_hbox)
 
+	var sep3 = HSeparator.new()
+	vbox.add_child(sep3)
+	
+	var seed_label = Label.new()
+	seed_label.text = "種子碼 (Seed)："
+	vbox.add_child(seed_label)
+	
+	var seed_hbox = HBoxContainer.new()
+	var seed_input = LineEdit.new()
+	seed_input.placeholder_text = "留空為隨機"
+	seed_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	seed_input.text_changed.connect(func(txt): opt_seed = txt)
+	seed_input.text_submitted.connect(func(txt): opt_seed = txt; _generate_new_map())
+	seed_hbox.add_child(seed_input)
+	
+	var seed_btn = Button.new()
+	seed_btn.text = "生成"
+	seed_btn.pressed.connect(func(): _generate_new_map())
+	seed_hbox.add_child(seed_btn)
+	
+	vbox.add_child(seed_hbox)
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var new_hovered_id: int = _find_clicked_node(event.position)
@@ -201,6 +240,19 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 func _generate_new_map() -> void:
+	# 決定這次要使用的種子碼
+	if opt_seed.strip_edges() == "":
+		randomize() # 根據時間重置全域亂數狀態
+		current_seed = randi()
+	else:
+		if opt_seed.is_valid_int():
+			current_seed = opt_seed.to_int()
+		else:
+			current_seed = opt_seed.hash()
+			
+	seed(current_seed)        # 固定全域亂數 (用於各個地圖生成演算法)
+	rng.seed = current_seed   # 固定畫面的 RNG (用於畫面節點的視覺偏移)
+
 	generator = factory.create_generator(current_algorithm)
 	generator.force_shop = opt_force_shop
 	generator.force_camp_before_boss = opt_force_camp
@@ -247,7 +299,7 @@ func _generate_new_map() -> void:
 		verification = generator.verify_connectivity(map_data)
 		verify_text = "PASS" if bool(verification.get("is_valid", false)) else "FAIL"
 		var evaluation: Dictionary = evaluator.evaluate_map(map_data, generator)
-		score_line_text = _build_evaluation_text(verify_text, evaluation)
+		score_line_text = _build_evaluation_text(verify_text, evaluation, current_seed)
 	else:
 		score_line_text = "[Invalid or incomplete map data]"
 
@@ -354,12 +406,13 @@ func _type_color(node_type: String) -> Color:
 func _edge_key(from_id: int, to_id: int) -> String:
 	return str(from_id) + "->" + str(to_id)
 
-func _build_evaluation_text(verify_text: String, evaluation: Dictionary) -> String:
+func _build_evaluation_text(verify_text: String, evaluation: Dictionary, used_seed: int) -> String:
 	var m: Dictionary = evaluation["metrics"]
 	var algo_name: String = generator.get_algorithm_name()
-	return "%s %s | Score %d/100 | Quality %d Branch %d Diversity %d PathQty %d Variety %d Pace %d" % [
+	return "%s %s | Seed: %d | Score %d/100 | Quality %d Branch %d Diversity %d PathQty %d Variety %d Pace %d" % [
 		algo_name,
 		verify_text,
+		used_seed,
 		evaluation["total_score"],
 		m["choice_quality"],
 		m["branch_options"],
