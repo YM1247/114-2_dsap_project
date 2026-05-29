@@ -23,13 +23,16 @@ var walked_nodes: Dictionary = {}
 var walked_edges: Dictionary = {}
 var score_line_text: String = ""
 
+var opt_force_shop: bool = false
+var opt_force_camp: bool = false
+
 func _ready() -> void:
-	generator = factory.create_generator(current_algorithm)
 	evaluator = MAP_EVALUATOR_SCRIPT.new()
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	rng.randomize()
 	randomize()
 	regenerate_button.pressed.connect(_on_regenerate_pressed)
+	_build_custom_ui()
 	_generate_new_map()
 
 func _draw() -> void:
@@ -92,6 +95,56 @@ func _draw() -> void:
 		draw_string(font, card_rect.position + Vector2(8.0, 19.0), title, HORIZONTAL_ALIGNMENT_LEFT, card_rect.size.x - 16.0, 14, Color.BLACK)
 		draw_string(font, card_rect.position + Vector2(8.0, 38.0), subtitle, HORIZONTAL_ALIGNMENT_LEFT, card_rect.size.x - 16.0, 12, Color(0.08, 0.08, 0.08, 0.85))
 
+func _build_custom_ui() -> void:
+	var ui_canvas = CanvasLayer.new()
+	add_child(ui_canvas)
+	
+	var panel = PanelContainer.new()
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_left", 15)
+	margin.add_theme_constant_override("margin_right", 15)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	panel.add_child(margin)
+	
+	# 將 UI 放在左上角
+	panel.set_anchors_preset(PRESET_TOP_LEFT)
+	panel.position = Vector2(10, 50)
+	ui_canvas.add_child(panel)
+	
+	var vbox = VBoxContainer.new()
+	margin.add_child(vbox)
+	
+	var algo_label = Label.new()
+	algo_label.text = "切換演算法："
+	vbox.add_child(algo_label)
+	
+	var hbox = HBoxContainer.new()
+	vbox.add_child(hbox)
+	
+	for algo in ["dag", "bsp", "forest"]:
+		var btn = Button.new()
+		btn.text = algo.to_upper()
+		btn.pressed.connect(func(): _switch_algorithm(algo))
+		hbox.add_child(btn)
+		
+	var sep = HSeparator.new()
+	vbox.add_child(sep)
+	
+	var opt_label = Label.new()
+	opt_label.text = "生成選項："
+	vbox.add_child(opt_label)
+	
+	var chk_shop = CheckBox.new()
+	chk_shop.text = "必定會經過一次Shop (中間層)"
+	chk_shop.toggled.connect(func(t): opt_force_shop = t; _generate_new_map())
+	vbox.add_child(chk_shop)
+	
+	var chk_camp = CheckBox.new()
+	chk_camp.text = "Boss前固定為Camp"
+	chk_camp.toggled.connect(func(t): opt_force_camp = t; _generate_new_map())
+	vbox.add_child(chk_camp)
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var new_hovered_id: int = _find_clicked_node(event.position)
@@ -108,6 +161,10 @@ func _gui_input(event: InputEvent) -> void:
 		accept_event()
 
 func _generate_new_map() -> void:
+	generator = factory.create_generator(current_algorithm)
+	generator.force_shop = opt_force_shop
+	generator.force_camp_before_boss = opt_force_camp
+
 	# 先嘗試由目前 generator 生成地圖，驗證回傳格式是否正確
 	var gen_map = generator.generate_map()
 	if typeof(gen_map) != TYPE_DICTIONARY or not gen_map.has("floors") or not gen_map.has("nodes"):
@@ -165,8 +222,14 @@ func _compute_node_positions() -> void:
 			var col: int = nodes[node_id]["column"]
 			var x: float = MAP_MARGIN_X + usable_w * (float(col) / float(max(generator.columns - 1, 1)))
 			var y: float = base_y
-			x += rng.randf_range(-14.0, 14.0)
-			y += rng.randf_range(-3.0, 3.0)
+			
+			# 固定 Boss 置中，且第一層與 Boss 層取消隨機偏移
+			if nodes[node_id]["type"] == "boss":
+				x = MAP_MARGIN_X + usable_w * 0.5
+			elif floor_idx != 0:
+				x += rng.randf_range(-14.0, 14.0)
+				y += rng.randf_range(-3.0, 3.0)
+				
 			node_positions[node_id] = Vector2(x, y)
 
 func _find_clicked_node(mouse_pos: Vector2) -> int:
@@ -221,13 +284,8 @@ func _input(event: InputEvent) -> void:
 				_switch_algorithm("forest")
 
 func _switch_algorithm(algorithm: String) -> void:
-	var new_gen = factory.create_generator(algorithm)
-	if new_gen == null:
-		push_error("Failed to create generator for algorithm: %s" % algorithm)
-		_set_action_text("切換失敗：未知或無法建立的演算法")
-		return
-	generator = new_gen
-	_set_action_text("已切換到演算法: %s" % generator.get_algorithm_name())
+	current_algorithm = algorithm
+	_set_action_text("已切換到演算法: %s" % algorithm.to_upper())
 	_generate_new_map()
 
 func _type_color(node_type: String) -> Color:
@@ -253,13 +311,14 @@ func _edge_key(from_id: int, to_id: int) -> String:
 func _build_evaluation_text(verify_text: String, evaluation: Dictionary) -> String:
 	var m: Dictionary = evaluation["metrics"]
 	var algo_name: String = generator.get_algorithm_name()
-	return "%s %s | Score %d/100 | Choice %d Branch %d Path %d Variety %d Pace %d" % [
+	return "%s %s | Score %d/100 | Quality %d Branch %d Diversity %d PathQty %d Variety %d Pace %d" % [
 		algo_name,
 		verify_text,
 		evaluation["total_score"],
 		m["choice_quality"],
 		m["branch_options"],
 		m["path_diversity"],
+		m.get("path_quality", 0),
 		m["encounter_variety"],
 		m["pacing_balance"]
 	]

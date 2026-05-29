@@ -2,9 +2,10 @@ extends RefCounted
 class_name MapEvaluator
 
 const METRIC_WEIGHTS := {
-	"choice_quality": 0.25,
-	"branch_options": 0.20,
-	"path_diversity": 0.25,
+	"choice_quality": 0.20,       # 降低：去重後更專注
+	"branch_options": 0.15,       # 簡化為獨立指標
+	"path_diversity": 0.20,       # 改為路徑品質評估
+	"path_quality": 0.15,         # 新增：路徑間差異度
 	"encounter_variety": 0.20,
 	"pacing_balance": 0.10
 }
@@ -20,6 +21,7 @@ func evaluate_map(map_data: Dictionary, generator: Object) -> Dictionary:
 	var choice_quality_score: float = _choice_quality_score(nodes, floors_to_nodes)
 	var branch_options_score: float = _branch_options_score(nodes, floors_to_nodes, generator)
 	var path_diversity_score: float = _path_diversity_score(nodes, floors_to_nodes)
+	var path_quality_score: float = _path_quality_score(nodes, floors_to_nodes)
 	var encounter_variety_score: float = _encounter_variety_score(nodes, floors_to_nodes)
 	var pacing_balance_score: float = _pacing_balance_score(floors_to_nodes)
 
@@ -27,6 +29,7 @@ func evaluate_map(map_data: Dictionary, generator: Object) -> Dictionary:
 		choice_quality_score * METRIC_WEIGHTS["choice_quality"] +
 		branch_options_score * METRIC_WEIGHTS["branch_options"] +
 		path_diversity_score * METRIC_WEIGHTS["path_diversity"] +
+		path_quality_score * METRIC_WEIGHTS["path_quality"] +
 		encounter_variety_score * METRIC_WEIGHTS["encounter_variety"] +
 		pacing_balance_score * METRIC_WEIGHTS["pacing_balance"]
 	)
@@ -37,6 +40,7 @@ func evaluate_map(map_data: Dictionary, generator: Object) -> Dictionary:
 			"choice_quality": int(round(choice_quality_score)),
 			"branch_options": int(round(branch_options_score)),
 			"path_diversity": int(round(path_diversity_score)),
+			"path_quality": int(round(path_quality_score)),
 			"encounter_variety": int(round(encounter_variety_score)),
 			"pacing_balance": int(round(pacing_balance_score))
 		},
@@ -51,11 +55,15 @@ func evaluate_map(map_data: Dictionary, generator: Object) -> Dictionary:
 	}
 
 func _choice_quality_score(nodes: Dictionary, floors_to_nodes: Array) -> float:
-	var avg_out_degree: float = _avg_out_degree(nodes, floors_to_nodes)
+	## 改進：專注於決策節點的品質，移除與 branch_options 的重疊
 	var decision_ratio: float = _decision_node_ratio(nodes, floors_to_nodes)
-	var out_degree_score: float = clamp(100.0 - abs(avg_out_degree - 1.8) * 140.0, 0.0, 100.0)
+	# 目標：約 55% 的節點是決策點（有 2 個或以上的出度）
 	var decision_score: float = clamp(100.0 - abs(decision_ratio - 0.55) * 180.0, 0.0, 100.0)
-	return out_degree_score * 0.55 + decision_score * 0.45
+	
+	# 添加：決策點的分支品質評估
+	var branch_quality_score: float = _branch_point_quality(nodes, floors_to_nodes)
+	
+	return decision_score * 0.6 + branch_quality_score * 0.4
 
 func _path_diversity_score(nodes: Dictionary, floors_to_nodes: Array) -> float:
 	var path_count: int = _count_paths_to_boss(nodes, floors_to_nodes)
@@ -63,10 +71,12 @@ func _path_diversity_score(nodes: Dictionary, floors_to_nodes: Array) -> float:
 	return clamp(normalized * 100.0, 0.0, 100.0)
 
 func _branch_options_score(nodes: Dictionary, floors_to_nodes: Array, generator: Object) -> float:
+	## 改進：簡化為獨立指標，只評估平均出度
 	var avg_out_degree: float = _avg_out_degree(nodes, floors_to_nodes)
-	var max_possible: float = max(float(generator.max_links_per_node), 1.0)
-	var normalized: float = avg_out_degree / max_possible
-	return clamp(normalized * 100.0, 0.0, 100.0)
+	# 目標出度：約 1.8-2.0
+	var optimal_degree: float = 1.9
+	var ratio: float = clamp(avg_out_degree / optimal_degree, 0.5, 1.5)
+	return clamp(ratio * 100.0, 0.0, 100.0)
 
 func _encounter_variety_score(nodes: Dictionary, floors_to_nodes: Array) -> float:
 	var counts := {
@@ -166,6 +176,9 @@ func _count_dead_ends_before_last_floor(nodes: Dictionary, floors_to_nodes: Arra
 	return dead_ends
 
 func _count_paths_to_boss(nodes: Dictionary, floors_to_nodes: Array) -> int:
+	if floors_to_nodes.is_empty() or floors_to_nodes[0].is_empty() or floors_to_nodes[-1].is_empty():
+		return 0
+		
 	var starts: Array = floors_to_nodes[0]
 	var boss_id: int = floors_to_nodes[floors_to_nodes.size() - 1][0]
 	var total_paths: int = 0
@@ -183,3 +196,111 @@ func _dfs_path_count(nodes: Dictionary, current_id: int, target_id: int, depth: 
 		count += _dfs_path_count(nodes, next_id, target_id, depth + 1, max_depth)
 	return count
 
+## ============== Phase 1 優化：新增方法 ==============
+
+func _branch_point_quality(nodes: Dictionary, floors_to_nodes: Array) -> float:
+	## 評估決策點（分支點）的品質
+	## - 分支點應連接到不同的下層節點
+	## - 分支點應均勻分布
+	var total_branch_points: int = 0
+	var high_quality_branch_points: int = 0
+	
+	for floor_idx in range(0, floors_to_nodes.size() - 1):
+		for node_id in floors_to_nodes[floor_idx]:
+			var out_degree = nodes[node_id]["next"].size()
+			if out_degree >= 2:  # 這是一個分支點
+				total_branch_points += 1
+				# 檢查分支點是否連接到足夠差異化的節點
+				if out_degree >= 3 or _branch_has_variety(nodes, node_id):
+					high_quality_branch_points += 1
+	
+	if total_branch_points == 0:
+		return 0.0
+	
+	var quality_ratio: float = float(high_quality_branch_points) / float(total_branch_points)
+	return quality_ratio * 100.0
+
+func _branch_has_variety(nodes: Dictionary, branch_node_id: int) -> bool:
+	## 檢查分支點是否連接到足夠不同的目標
+	if nodes[branch_node_id]["next"].size() < 2:
+		return false
+	
+	var targets = nodes[branch_node_id]["next"]
+	if targets.size() < 2:
+		return false
+	
+	# 檢查至少 2 個目標的列數差異 >= 2
+	var target_cols: Array = []
+	for target_id in targets:
+		target_cols.append(nodes[target_id]["column"])
+	
+	target_cols.sort()
+	var col_spread = target_cols[-1] - target_cols[0]
+	return col_spread >= 2
+
+func _path_quality_score(nodes: Dictionary, floors_to_nodes: Array) -> float:
+	## Phase 1 新增：評估路徑間的品質和差異度
+	## - 計算不同路徑的特徵差異
+	## - 檢查是否有重複/冗餘路徑
+	## - 評估路徑多樣性
+	
+	var path_count: int = _count_paths_to_boss(nodes, floors_to_nodes)
+	if path_count <= 1:
+		return 0.0
+	
+	# 計算路徑特徵的多樣性
+	var path_profiles = _calculate_path_profiles(nodes, floors_to_nodes)
+	var unique_ratio = float(path_profiles.size()) / max(float(path_count), 1.0)
+	
+	# 路徑多樣性評分：根據唯一路徑比例
+	# - 如果所有路徑都不同：得分 100
+	# - 如果有重複路徑：根據唯一比例扣分
+	var diversity_score = clamp(unique_ratio * 100.0, 0.0, 100.0)
+	
+	return diversity_score
+
+func _calculate_path_profiles(nodes: Dictionary, floors_to_nodes: Array) -> Array:
+	## 計算所有路徑的節點類型序列作為「特徵」
+	## 用於檢測重複路徑
+	
+	var starts: Array = floors_to_nodes[0]
+	var boss_id: int = floors_to_nodes[floors_to_nodes.size() - 1][0]
+	var all_paths: Array = []
+	
+	for start_id in starts:
+		var paths = _enumerate_all_paths(nodes, start_id, boss_id, 0, 100)
+		for path in paths:
+			all_paths.append(path)
+	
+	# 轉換為特徵向量（簡化：每層的平均節點類型）
+	var profiles: Dictionary = {}
+	for path in all_paths:
+		var profile = _path_to_profile(nodes, path)
+		profiles[profile] = true  # 用 Dictionary 去重
+	
+	return profiles.keys()
+
+func _enumerate_all_paths(nodes: Dictionary, current_id: int, target_id: int, depth: int, max_depth: int) -> Array:
+	## 列舉從 current_id 到 target_id 的所有路徑
+	if depth > max_depth:
+		return []
+	if current_id == target_id:
+		return [[current_id]]
+	
+	var all_paths: Array = []
+	for next_id in nodes[current_id]["next"]:
+		var sub_paths = _enumerate_all_paths(nodes, next_id, target_id, depth + 1, max_depth)
+		for sub_path in sub_paths:
+			all_paths.append([current_id] + sub_path)
+	
+	return all_paths
+
+func _path_to_profile(nodes: Dictionary, path: Array) -> String:
+	## 將路徑轉換為特徵字符串
+	## 用節點類型的序列代表路徑特徵
+	var profile: String = ""
+	for node_id in path:
+		var node_type = nodes[node_id]["type"]
+		var type_char = node_type.substr(0, 1).to_upper()  # c=combat, e=elite 等
+		profile += type_char
+	return profile

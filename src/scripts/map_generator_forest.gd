@@ -28,7 +28,7 @@ func generate_map() -> Dictionary:
 	var path_node_ids: Array = []  # 追蹤每條路徑的節點 ID
 
 	# Step 1: 分配路徑風格並生成主要路徑（樹幹）
-	var start_cols: Array = _pick_start_columns(num_main_paths)
+	var start_cols: Array = _get_evenly_spaced_columns(num_main_paths)
 	_assign_path_styles(num_main_paths)
 	
 	for path_idx in range(start_cols.size()):
@@ -232,6 +232,14 @@ func _assign_node_types(nodes: Dictionary, floors_to_nodes: Array) -> void:
 		for node_id in floors_to_nodes[floor]:
 			if floor == 0:
 				nodes[node_id]["type"] = NODE_COMBAT
+				continue
+
+			if force_camp_before_boss and floor == floors_to_nodes.size() - 2:
+				nodes[node_id]["type"] = NODE_CAMP
+				continue
+
+			if force_shop and floor == int(floors / 2):
+				nodes[node_id]["type"] = NODE_SHOP
 				continue
 
 			var valid_types: Array = [NODE_COMBAT, NODE_EVENT, NODE_ELITE, NODE_SHOP, NODE_CAMP]

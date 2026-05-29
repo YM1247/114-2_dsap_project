@@ -21,15 +21,19 @@ func run_comparison_test(sample_size: int = 50) -> Dictionary:
 			"choice_quality": [],
 			"branch_options": [],
 			"path_diversity": [],
+			"path_quality": [],
 			"encounter_variety": [],
 			"pacing_balance": []
 		}
 		
+		var current_algo_display_name: String = ""
 		for i in range(sample_size):
 			var generator = factory.create_generator(algo_name)
+			if i == 0:
+				current_algo_display_name = generator.get_algorithm_name()
 			var map_data = generator.generate_map()
 			
-			if map_data.is_empty():
+			if typeof(map_data) != TYPE_DICTIONARY or map_data.is_empty() or not map_data.has("floors") or not map_data.has("nodes"):
 				continue
 			
 			var evaluation = evaluator.evaluate_map(map_data, generator)
@@ -39,7 +43,7 @@ func run_comparison_test(sample_size: int = 50) -> Dictionary:
 				metrics[metric_key].append(evaluation["metrics"][metric_key])
 		
 		results[algo_name] = {
-			"algorithm": generator.get_algorithm_name(),
+			"algorithm": current_algo_display_name,
 			"sample_count": scores.size(),
 			"avg_score": _calculate_average(scores),
 			"min_score": _calculate_min(scores),
