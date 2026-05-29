@@ -35,6 +35,9 @@ var type_weights: Dictionary = {
 	NODE_CAMP: 8.0
 }
 
+var force_shop: bool = false
+var force_camp_before_boss: bool = false
+
 ## 生成地圖（子類必須實現）
 func generate_map() -> Dictionary:
 	push_error("generate_map() must be implemented by subclass")
@@ -52,6 +55,17 @@ func get_algorithm_name() -> String:
 ## 獲取演算法說明
 func get_algorithm_description() -> String:
 	return "Base class for map generation algorithms"
+
+## 獲取等分佈的起始欄位
+func _get_evenly_spaced_columns(count: int) -> Array:
+	var cols: Array = []
+	if count <= 1:
+		cols.append(columns / 2)
+	else:
+		var step = float(columns - 1) / float(count - 1)
+		for i in range(count):
+			cols.append(int(round(i * step)))
+	return cols
 
 ## ============== 通用輔助方法 ==============
 

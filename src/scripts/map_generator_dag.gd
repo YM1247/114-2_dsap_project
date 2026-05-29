@@ -12,8 +12,14 @@ func generate_map() -> Dictionary:
 
 	for floor in range(floors):
 		var floor_nodes: Array = []
-		var target_count: int = 1 if floor == floors - 1 else randi_range(min_nodes_per_floor, max_nodes_per_floor)
-		var chosen_columns: Array = _pick_columns(target_count)
+		var chosen_columns: Array = []
+		if floor == 0:
+			chosen_columns = _get_evenly_spaced_columns(3)
+		elif floor == floors - 1:
+			chosen_columns = [int(columns / 2)]
+		else:
+			var target_count: int = randi_range(min_nodes_per_floor, max_nodes_per_floor)
+			chosen_columns = _pick_columns(target_count)
 
 		for col in chosen_columns:
 			var node: Dictionary = {
@@ -102,6 +108,14 @@ func _assign_node_types(nodes: Dictionary, floors_to_nodes: Array) -> void:
 				continue
 			if floor == floors_to_nodes.size() - 1:
 				nodes[node_id]["type"] = NODE_BOSS
+				continue
+
+			if force_camp_before_boss and floor == floors_to_nodes.size() - 2:
+				nodes[node_id]["type"] = NODE_CAMP
+				continue
+
+			if force_shop and floor == int(floors / 2):
+				nodes[node_id]["type"] = NODE_SHOP
 				continue
 
 			var prev_nodes: Array = nodes[node_id]["prev"]

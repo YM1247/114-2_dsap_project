@@ -49,6 +49,22 @@ func generate_map() -> Dictionary:
 	for i in range(floors - 1):
 		floors_to_nodes.append([])
 
+	# Step 0: 強制分配第一層起點，確保等分佈
+	var start_cols: Array = _get_evenly_spaced_columns(3)
+	for col in start_cols:
+		var node: Dictionary = {
+			"id": next_node_id,
+			"floor": 0,
+			"column": col,
+			"type": NODE_COMBAT,
+			"next": [],
+			"prev": [],
+			"region": null
+		}
+		nodes[next_node_id] = node
+		floors_to_nodes[0].append(next_node_id)
+		next_node_id += 1
+
 	# Step 1: 遞迴分割除 Boss 層以外的空間
 	var partition_height = float(floors - 1)
 	if partition_height < min_region_height:
@@ -56,7 +72,7 @@ func generate_map() -> Dictionary:
 
 	var regions: Array = []
 	_partition_space(
-		BSPRegion.new(0.0, float(columns), 0.0, partition_height, 0),
+		BSPRegion.new(0.0, float(columns), 1.0, partition_height, 0),
 		regions
 	)
 	
@@ -66,8 +82,7 @@ func generate_map() -> Dictionary:
 		# 使用區域的中心 Y 座標來計算樓層，更為準確且公式直觀
 		var center_y: float = (region.y_min + region.y_max) / 2.0
 		var max_floor_idx = floors - 2
-		var region_floor: int = int(center_y / partition_height * float(max_floor_idx))
-		region_floor = clampi(region_floor, 0, max_floor_idx)
+		var region_floor: int = clampi(int(center_y), 1, max_floor_idx)
 		
 		# 在該區域生成節點
 		var nodes_in_region: int = randi_range(1, nodes_per_region)
@@ -116,7 +131,7 @@ func generate_map() -> Dictionary:
 			next_node_id += 1
 	
 	# Step 2.5: 補齊可能過少節點的樓層，強制每層至少 min_nodes_per_floor 節點，維持層數穩定與選擇多樣性
-	for i in range(floors - 1):
+	for i in range(1, floors - 1):
 		while floors_to_nodes[i].size() < min_nodes_per_floor:
 			var used_cols: Array = []
 			for node_id in floors_to_nodes[i]:
@@ -275,6 +290,14 @@ func _assign_node_types(nodes: Dictionary, floors_to_nodes: Array) -> void:
 			# 第一層必須是 combat
 			if floor == 0:
 				nodes[node_id]["type"] = NODE_COMBAT
+				continue
+
+			if force_camp_before_boss and floor == floors_to_nodes.size() - 2:
+				nodes[node_id]["type"] = NODE_CAMP
+				continue
+
+			if force_shop and floor == int(floors / 2):
+				nodes[node_id]["type"] = NODE_SHOP
 				continue
 
 			# 中間層根據規則選擇

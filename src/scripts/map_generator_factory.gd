@@ -5,7 +5,6 @@ class_name MapGeneratorFactory
 
 const ALGORITHM_DAG = "dag"
 const ALGORITHM_BSP = "bsp"
-const ALGORITHM_CSP = "csp"
 const ALGORITHM_FOREST = "forest"
 
 var available_algorithms: Array = [ALGORITHM_DAG]
@@ -17,8 +16,6 @@ func create_generator(algorithm: String) -> MapGeneratorBase:
 			return MapGeneratorDAG.new()
 		ALGORITHM_BSP:
 			return MapGeneratorBSP.new()
-		ALGORITHM_CSP:
-			return MapGeneratorCSP.new()
 		ALGORITHM_FOREST:
 			return MapGeneratorForest.new()
 		_:
@@ -39,6 +36,5 @@ func update_available_algorithms() -> void:
 	available_algorithms = [
 		ALGORITHM_DAG,
 		ALGORITHM_BSP,
-		# ALGORITHM_FOREST,  # 待實現
-		# ALGORITHM_CSP      # 待實現
+		ALGORITHM_FOREST
 	]
