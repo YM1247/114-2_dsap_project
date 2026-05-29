@@ -32,6 +32,7 @@ var opt_floors: int = 10
 var opt_columns: int = 7
 var opt_seed: String = ""
 var current_seed: int = 0
+var opt_test_count: int = 50
 
 func _ready() -> void:
 	evaluator = MAP_EVALUATOR_SCRIPT.new()
@@ -224,6 +225,27 @@ func _build_custom_ui() -> void:
 	
 	vbox.add_child(seed_hbox)
 
+	var sep4 = HSeparator.new()
+	vbox.add_child(sep4)
+	
+	var test_hbox = HBoxContainer.new()
+	var test_lbl = Label.new()
+	test_lbl.text = "測試數量："
+	test_hbox.add_child(test_lbl)
+	
+	var test_input = SpinBox.new()
+	test_input.min_value = 1
+	test_input.max_value = 1000
+	test_input.value = opt_test_count
+	test_input.value_changed.connect(func(v): opt_test_count = int(v))
+	test_hbox.add_child(test_input)
+	vbox.add_child(test_hbox)
+	
+	var test_btn = Button.new()
+	test_btn.text = "執行演算法對比測試"
+	test_btn.pressed.connect(_run_algorithm_comparison)
+	vbox.add_child(test_btn)
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var new_hovered_id: int = _find_clicked_node(event.position)
@@ -402,6 +424,40 @@ func _type_color(node_type: String) -> Color:
 			return Color(0.85, 0.2, 0.85)
 		_:
 			return Color.WHITE
+
+func _run_algorithm_comparison() -> void:
+	print("開始執行演算法對比測試 (共 3 種演算法，各 %d 張地圖)，請稍候..." % opt_test_count)
+	var comparer = AlgorithmComparison.new()
+	var results = comparer.run_comparison_test(opt_test_count) # 依照設定的數量生成
+	var output_str = comparer.format_comparison_results(results)
+	
+	var improvement = comparer.calculate_improvement_percentage(results)
+	if improvement.has("overall_improvement"):
+		output_str += "=> Forest 演算法相較於 DAG 的總體分數提升率: %.2f%%\n" % improvement["overall_improvement"]
+		
+	print(output_str)
+	_show_result_dialog(output_str)
+	print("測試完成！")
+
+func _show_result_dialog(result_text: String) -> void:
+	var dialog = AcceptDialog.new()
+	dialog.title = "演算法對比測試結果"
+	if self.theme:
+		dialog.theme = self.theme
+	
+	dialog.min_size = Vector2(500, 400)
+	
+	var text_edit = TextEdit.new()
+	text_edit.text = result_text
+	text_edit.editable = false
+	text_edit.custom_minimum_size = Vector2(480, 350)
+	
+	dialog.add_child(text_edit)
+	add_child(dialog)
+	dialog.popup_centered()
+	
+	dialog.canceled.connect(dialog.queue_free)
+	dialog.confirmed.connect(dialog.queue_free)
 
 func _edge_key(from_id: int, to_id: int) -> String:
 	return str(from_id) + "->" + str(to_id)
