@@ -2,7 +2,8 @@ extends Control
 
 const NODE_RADIUS := 16.0
 const NODE_CARD_SIZE := Vector2(120.0, 52.0)
-const MAP_MARGIN_X := 80.0
+const MAP_MARGIN_LEFT := 360.0
+const MAP_MARGIN_RIGHT := 80.0
 const MAP_MARGIN_Y := 90.0
 const MAP_EVALUATOR_SCRIPT = preload("res://src/scripts/map_evaluator.gd")
 
@@ -25,6 +26,8 @@ var score_line_text: String = ""
 
 var opt_force_shop: bool = false
 var opt_force_camp: bool = false
+var opt_floors: int = 10
+var opt_columns: int = 7
 
 func _ready() -> void:
 	evaluator = MAP_EVALUATOR_SCRIPT.new()
@@ -109,7 +112,7 @@ func _build_custom_ui() -> void:
 	
 	# 將 UI 放在左上角
 	panel.set_anchors_preset(PRESET_TOP_LEFT)
-	panel.position = Vector2(10, 50)
+	panel.position = Vector2(10, 80)
 	ui_canvas.add_child(panel)
 	
 	var vbox = VBoxContainer.new()
@@ -145,6 +148,43 @@ func _build_custom_ui() -> void:
 	chk_camp.toggled.connect(func(t): opt_force_camp = t; _generate_new_map())
 	vbox.add_child(chk_camp)
 
+	var sep2 = HSeparator.new()
+	vbox.add_child(sep2)
+	
+	var param_label = Label.new()
+	param_label.text = "地圖參數調整："
+	vbox.add_child(param_label)
+	
+	var floors_hbox = HBoxContainer.new()
+	var floors_label = Label.new()
+	floors_label.text = "層數 (Floors): 10"
+	floors_label.custom_minimum_size.x = 140
+	floors_hbox.add_child(floors_label)
+	
+	var floors_slider = HSlider.new()
+	floors_slider.min_value = 5
+	floors_slider.max_value = 20
+	floors_slider.value = 10
+	floors_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	floors_slider.value_changed.connect(func(v): opt_floors = int(v); floors_label.text = "層數 (Floors): %d" % opt_floors; _generate_new_map())
+	floors_hbox.add_child(floors_slider)
+	vbox.add_child(floors_hbox)
+	
+	var cols_hbox = HBoxContainer.new()
+	var cols_label = Label.new()
+	cols_label.text = "寬度 (Columns): 7"
+	cols_label.custom_minimum_size.x = 140
+	cols_hbox.add_child(cols_label)
+	
+	var cols_slider = HSlider.new()
+	cols_slider.min_value = 4
+	cols_slider.max_value = 15
+	cols_slider.value = 7
+	cols_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols_slider.value_changed.connect(func(v): opt_columns = int(v); cols_label.text = "寬度 (Columns): %d" % opt_columns; _generate_new_map())
+	cols_hbox.add_child(cols_slider)
+	vbox.add_child(cols_hbox)
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var new_hovered_id: int = _find_clicked_node(event.position)
@@ -164,6 +204,8 @@ func _generate_new_map() -> void:
 	generator = factory.create_generator(current_algorithm)
 	generator.force_shop = opt_force_shop
 	generator.force_camp_before_boss = opt_force_camp
+	generator.floors = opt_floors
+	generator.columns = opt_columns
 
 	# 先嘗試由目前 generator 生成地圖，驗證回傳格式是否正確
 	var gen_map = generator.generate_map()
@@ -172,6 +214,10 @@ func _generate_new_map() -> void:
 		# 使用預設 DAG 作為回退
 		var fallback_factory = MapGeneratorFactory.new()
 		generator = fallback_factory.create_generator(MapGeneratorFactory.ALGORITHM_DAG)
+		generator.force_shop = opt_force_shop
+		generator.force_camp_before_boss = opt_force_camp
+		generator.floors = opt_floors
+		generator.columns = opt_columns
 		gen_map = generator.generate_map()
 		if typeof(gen_map) != TYPE_DICTIONARY or not gen_map.has("floors") or not gen_map.has("nodes"):
 			push_error("Fallback generator also failed; aborting map generation")
@@ -213,19 +259,19 @@ func _compute_node_positions() -> void:
 	var floors_to_nodes: Array = map_data["floors"]
 	var nodes: Dictionary = map_data["nodes"]
 
-	var usable_w: float = max(size.x - MAP_MARGIN_X * 2.0, 100.0)
+	var usable_w: float = max(size.x - MAP_MARGIN_LEFT - MAP_MARGIN_RIGHT, 100.0)
 	var usable_h: float = max(size.y - MAP_MARGIN_Y * 2.0, 100.0)
 
 	for floor_idx in range(floors_to_nodes.size()):
 		var base_y: float = MAP_MARGIN_Y + usable_h * (1.0 - float(floor_idx) / float(max(floors_to_nodes.size() - 1, 1)))
 		for node_id in floors_to_nodes[floor_idx]:
 			var col: int = nodes[node_id]["column"]
-			var x: float = MAP_MARGIN_X + usable_w * (float(col) / float(max(generator.columns - 1, 1)))
+			var x: float = MAP_MARGIN_LEFT + usable_w * (float(col) / float(max(generator.columns - 1, 1)))
 			var y: float = base_y
 			
 			# 固定 Boss 置中，且第一層與 Boss 層取消隨機偏移
 			if nodes[node_id]["type"] == "boss":
-				x = MAP_MARGIN_X + usable_w * 0.5
+				x = MAP_MARGIN_LEFT + usable_w * 0.5
 			elif floor_idx != 0:
 				x += rng.randf_range(-14.0, 14.0)
 				y += rng.randf_range(-3.0, 3.0)
