@@ -39,6 +39,6 @@ func update_available_algorithms() -> void:
 	available_algorithms = [
 		ALGORITHM_DAG,
 		ALGORITHM_BSP,
-		# ALGORITHM_FOREST,  # 待實現
+		ALGORITHM_FOREST,  # 已實現
 		# ALGORITHM_CSP      # 待實現
 	]
