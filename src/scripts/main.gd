@@ -148,7 +148,7 @@ func _generate_new_map() -> void:
 	else:
 		score_line_text = "[Invalid or incomplete map data]"
 
-	_set_action_text("點選第一層節點開始 | R 重生 | 1-4 切換演算法")
+	_set_action_text("點選第一層節點開始 | R 重生 | 1-3 切換演算法")
 	queue_redraw()
 
 func _compute_node_positions() -> void:
@@ -210,7 +210,7 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
 		_generate_new_map()
 	
-	# 按 1-4 切換演算法
+	# 按 1-3 切換演算法
 	if event is InputEventKey and event.pressed:
 		match event.keycode:
 			KEY_1:
@@ -219,8 +219,6 @@ func _input(event: InputEvent) -> void:
 				_switch_algorithm("bsp")
 			KEY_3:
 				_switch_algorithm("forest")
-			KEY_4:
-				_switch_algorithm("csp")
 
 func _switch_algorithm(algorithm: String) -> void:
 	var new_gen = factory.create_generator(algorithm)
